@@ -1,0 +1,186 @@
+#Work currently a draft, subject to change
+
+#Library for finance analysis
+library(tidyquant) 
+
+#Library for handling portfolio optimisation
+library(timetk)
+
+#Libraries for data transformation
+library(dplyr)
+library(tidyr)
+
+#Libraries for optimisation
+library(GA)
+library(mco)
+library(metaheuristicOpt)
+library(DEoptim)
+
+#Libraries for visualisation
+library(ggplot2)
+
+#Setting seed for reproductability
+set.seed(100)
+
+load_data <- function(){
+  #Loading in top 10 stocks
+  ABBV_stock <- read.csv("ABBV.csv", header=TRUE)
+  ABC_stock <- read.csv("ACB.csv", header=TRUE)
+  BUD_stock <- read.csv("BUD.csv", header=TRUE)
+  CGC_stock <- read.csv("CGC.csv", header=TRUE)
+  CRON_stock <- read.csv("CRON.csv", header=TRUE)
+  MJ_stock <- read.csv("MJ.csv", header=TRUE)
+  MO_stock <- read.csv("MO.csv", header=TRUE)
+  TAP_stock <- read.csv("TAP.csv", header=TRUE)
+  TLRY_stock <- read.csv("TLRY.csv", header=TRUE)
+  WEEDTO_stock <- read.csv("WEED.TO.csv", header=TRUE)
+  
+  #Add a symbol column to state which stock is which 
+  ABBV_stock$Symbol <- "ABBV"
+  ABC_stock$Symbol <- "ABC"
+  BUD_stock$Symbol <- "BUD"
+  CGC_stock$Symbol <- "CGC"
+  CRON_stock$Symbol <- "CRON"
+  MJ_stock$Symbol <- "MJ"
+  MO_stock$Symbol <- "MO"
+  TAP_stock$Symbol <- "TAP"
+  TLRY_stock$Symbol <- "TLRY"
+  WEEDTO_stock$Symbol <- "WEED.TO"
+  
+  #Binding all stock into one dataset
+  stock_prices <- rbind(ABBV_stock, ABC_stock, BUD_stock, CGC_stock, CRON_stock, MJ_stock, MO_stock, TAP_stock, TLRY_stock, WEEDTO_stock)
+  
+  #Converting dates to proper type and format
+  dates <- stock_prices$Date
+  dates <- data.frame(as.Date(dates, format = "%Y-%m-%d"))
+  stock_prices["Date"] <- dates
+  
+  
+  #Selecting only the date, closing price, and the name of the stock 
+  stock_prices_long <- stock_prices[c("Date", "Close", "Symbol")]
+  stock_prices_long
+  
+  
+  #Converting to wide format
+  stock_prices_wide <- stock_prices_long %>%
+    spread(Symbol, value = Close)
+  
+  stock_prices_wide <- na.omit(stock_prices_wide)
+  
+  stock_prices_wide <- subset(stock_prices_wide, select = -c(Date))
+  
+  return (stock_prices_wide)
+  
+}
+
+
+stock_data <- load_data()
+
+
+#Function for optimisation methods that maximise (GA)
+getFitnessGA <- function(weights){
+  
+  weights <- weights/sum(weights)
+  
+  #Calculating portfolio returns 
+  portfolio_return <- sum(weights * colMeans(stock_data))
+  
+  #Calculating portfolio variance
+  portfolio_risk <- sqrt(t(weights) %*% cov(stock_data) %*% weights)
+  
+  #Calculating Sharpe ratio
+  sharpeRatio <- portfolio_return / portfolio_risk
+  
+  
+  return(-sharpeRatio)
+}
+
+
+
+
+#Function for optimisation methods that minimise (PSO, DE)
+getFitness <- function(weights){
+  
+  weights <- weights/sum(weights)
+  
+  #Calculating portfolio returns 
+  portfolio_return <- sum(weights * colMeans(stock_data))
+  
+  #Calculating portfolio variance
+  portfolio_risk <- sqrt(t(weights) %*% cov(stock_data) %*% weights)
+  
+  #Calculating Sharpe ratio
+  sharpeRatio <- portfolio_return / portfolio_risk
+  
+  
+  return(sharpeRatio)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+runGA <- function(){
+  results <- ga(type ="real-valued", fitness = getFitnessGA, lower = rep(0, 10), upper = rep(1, 10),  monitor = TRUE, maxiter = 100)
+  return(results)
+}
+
+
+runPSO <- function(){
+  results <- psoptim(rep(NA, 10), fn = getFitness, lower=rep(0, 10), upper = rep(1, 10), 
+                     control = c(maxit = 100, REPORT = 1, trace = 1, trace.stats=1))
+  return(results)
+}
+
+
+runDE <- function(){
+  results <- DEoptim(fn = getFitness, lower = rep(0, 10), upper = rep(1, 10),  
+                     DEoptim.control(itermax = 100))
+  return(results)
+}
+
+
+#Loading dataset and running experiments
+stock_data <- load_data()
+GAresults <- runGA()
+PSOresults <- runPSO()
+DEresults <- runDE()
+
+
+#Getting the optimum solution
+GAOptim <- GAresults@solution / sum(GAresults@solution)
+GAOptim
+
+PSOOptim <- PSOresults$par / sum(PSOresults$par)
+PSOOptim
+
+DEOptim <- DEresults$optim$bestmem / sum(DEresults$optim$bestmem)
+DEOptim
+
+
+#Plotting GA
+plot(GAresults, main = "Fitness value through GA generations")
+
+
+#Plotting DE
+plot(DEresults$member$bestvalit,xlab = "Generation", ylab = "Fitness value", main = "Fitness value through DE generations")
+
+
+#Getting fitness values
+fitnesses <- c()
+for (i in c(1:100)){
+  fit_value <- min(PSOresults$stats$f[[i]])
+  fitnesses <- append(fitnesses, fit_value)
+}
+
+plot(fitnesses, xlab = "Generation", ylab = "Fitness value", main = "Fitness value through PSO generations")
+
+
